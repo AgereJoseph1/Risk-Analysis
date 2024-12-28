@@ -102,6 +102,23 @@ st.markdown("""
             font-size: 1rem;
             transition: background-color 0.3s ease;
         }
+            
+          /* Hide Streamlit menu button */
+        #MainMenu {visibility: hidden;}
+        
+        /* Hide GitHub link */
+        footer {visibility: hidden;}
+        
+        /* Hide documentation link */
+        header {visibility: hidden;}
+        
+        /* Optional: Adjust the main content padding if needed */
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }  
+
+
     </style>
 """, unsafe_allow_html=True)
 
