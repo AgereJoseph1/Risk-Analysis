@@ -168,10 +168,13 @@ def extract_numeric_value(value, threshold_type):
 
 def calculate_risk_score(value, threshold_type):
     rules = THRESHOLD_RULES.get(threshold_type, THRESHOLD_RULES['time'])
-    for threshold, score in rules.items():
+    score = 5  # default maximum
+    for threshold, risk_score in rules.items():
         if value <= threshold:
-            return score
-    return max(rules.values())
+            score = risk_score
+            break
+    # Ensure the score doesn't exceed 25
+    return min(score, 25)
 
 def process_data(df):
     df = df.copy()
@@ -197,11 +200,12 @@ def process_data_with_residuals(df, previous_data=None):
     else:
         processed_df['Previous_Total_Risk'] = 0
         processed_df['Residual_Risk'] = 0
+    
+    # Ensure Total_Risk doesn't exceed 25
+    processed_df['Risk_Score'] = processed_df['Risk_Score'].clip(upper=25)
     processed_df['Total_Risk_Category'] = processed_df['Risk_Score'].apply(calibrate_total_risk)
 
     critical_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
-
-
     return processed_df
 
 ###########################
@@ -407,18 +411,18 @@ if uploaded_file is not None:
         processed_df = process_data_with_residuals(df, previous_data)
 
         if processed_df is not None:
-            col1, col2, col3, col4, col5 = st.columns(5)
+            col1, col2, col3, col4 = st.columns(4)
             total_risks = len(processed_df)
             critical_risks = len(processed_df[processed_df['Risk_Level']=='Critical'])
             high_risks = len(processed_df[processed_df['Risk_Level']=='High'])
             avg_score = processed_df['Risk_Score'].mean()
             residual_risks = len(processed_df[processed_df['Residual_Risk']>0])
 
-            col1.metric("Total Risks", total_risks)
-            col2.metric("Critical Risks", critical_risks, f"{(critical_risks/total_risks*100):.1f}%")
-            col3.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
-            col4.metric("Avg Risk Score", f"{avg_score:.2f}")
-            col5.metric("Residual Risks", residual_risks)
+         
+            col1.metric("Critical Risks", critical_risks, f"{(critical_risks/total_risks*100):.1f}%")
+            col2.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
+            col3.metric("Avg Risk Score", f"{avg_score:.2f}")
+            col4.metric("Residual Risks", residual_risks)
 
             tab1, tab2, tab3 = st.tabs(["Overview", "Analysis", "Data"])
             
