@@ -360,8 +360,109 @@ def get_report_styles():
     pass
 
 def generate_comprehensive_report(df, timestamp):
-    # ...
-    pass
+    """Generate a PDF report with risk analysis"""
+    # Create a buffer to store the PDF
+    buffer = BytesIO()
+    
+    # Create the PDF document
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=72,
+        leftMargin=72,
+        topMargin=72,
+        bottomMargin=72
+    )
+    
+    # Initialize story (content) for the PDF
+    story = []
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        alignment=1  # Center alignment
+    )
+    
+    # Add title
+    story.append(Paragraph(f"Risk Assessment Report", title_style))
+    story.append(Paragraph(f"Generated on: {timestamp}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Add summary statistics
+    total_risks = len(df)
+    critical_risks = len(df[df['Risk_Level']=='Critical'])
+    high_risks = len(df[df['Risk_Level']=='High'])
+    avg_score = df['Risk_Score'].mean()
+    
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Risks', str(total_risks)],
+        ['Critical Risks', str(critical_risks)],
+        ['High Risks', str(high_risks)],
+        ['Average Risk Score', f"{avg_score:.2f}"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[200, 100])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Add critical and high risks table
+    story.append(Paragraph("Critical and High Risk Items", styles['Heading2']))
+    story.append(Spacer(1, 10))
+    
+    critical_high_df = df[df['Risk_Level'].isin(['Critical', 'High'])].copy()
+    if len(critical_high_df) > 0:
+        risk_data = [['Risk ID', 'Type', 'Description', 'Risk Level', 'Score']]
+        for _, row in critical_high_df.iterrows():
+            risk_data.append([
+                str(row['Risk ID']),
+                str(row['Type of Risk']),
+                str(row['Description'])[:100] + '...',  # Truncate long descriptions
+                str(row['Risk_Level']),
+                str(row['Risk_Score'])
+            ])
+        
+        risk_table = Table(risk_data, colWidths=[80, 100, 250, 80, 60])
+        risk_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.red),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        story.append(risk_table)
+    else:
+        story.append(Paragraph("No Critical or High risk items found.", styles['Normal']))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 def get_risk_severity_text(score):
     # ...
