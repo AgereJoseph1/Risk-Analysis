@@ -374,6 +374,118 @@ def get_impact_description(score):
 def generate_recommendations(df):
     # ...
     pass
+def create_risk_scoring_scale():
+    """Creates a risk scoring scale with colored line segments."""
+    
+    # Create base figure
+    fig = go.Figure()
+    
+    # Define overall parameters
+    y_line = 4  # y-position of main range line
+    x_range = [1, 25]  # x-axis range
+    
+    # Define line segments with colors
+    segments = [
+        (1, 7, "rgb(0, 128, 0)"),      # Green segment
+        (7, 13, "rgb(255, 215, 0)"),   # Yellow segment
+        (13, 19, "rgb(255, 0, 0)"),    # Red segment
+        (19, 25, "rgb(100, 100, 100)") # Gray segment
+    ]
+    
+    # Add colored line segments
+    for start, end, color in segments:
+        fig.add_shape(
+            type="line",
+            x0=start, x1=end,
+            y0=y_line, y1=y_line,
+            line=dict(color=color, width=3)
+        )
+    
+    # Add "Range" text
+    fig.add_annotation(
+        x=0, y=y_line,
+        text="Range",
+        showarrow=False,
+        xanchor="right",
+        yanchor="middle",
+        font=dict(size=10)
+    )
+    
+    # Add scale numbers below line
+    scale_numbers = [1, 5, 10, 15, 20, 25]
+    for num in scale_numbers:
+        fig.add_annotation(
+            x=num,
+            y=y_line - 0.3,
+            text=str(num),
+            showarrow=False,
+            yanchor="top",
+            font=dict(size=10)
+        )
+    
+    # Add circle markers at transition points
+    markers = [7, 13, 19]
+    fig.add_trace(go.Scatter(
+        x=markers,
+        y=[y_line] * len(markers),
+        mode='markers',
+        marker=dict(
+            size=8,
+            color='white',
+            line=dict(color='black', width=1)
+        ),
+        showlegend=False
+    ))
+    
+    # Add labels (Low, Medium, High)
+    labels = [
+        (7, "Low"),
+        (13, "Medium"),
+        (19, "High")
+    ]
+    
+    for x, label in labels:
+        fig.add_annotation(
+            x=x,
+            y=y_line - 0.6,
+            text=label,
+            showarrow=False,
+            font=dict(size=10),
+            xanchor="center",
+            yanchor="top"
+        )
+    
+    # Update layout
+    fig.update_layout(
+        xaxis=dict(
+            range=[-1, 26],
+            showticklabels=False,
+            showgrid=False,
+            zeroline=False,
+            fixedrange=True
+        ),
+        yaxis=dict(
+            range=[2, 5],
+            showticklabels=False,
+            showgrid=False,
+            zeroline=False,
+            fixedrange=True
+        ),
+        height=120,
+        margin=dict(l=50, r=50, t=30, b=20),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        showlegend=False,
+        title=dict(
+            text="Edit scoring scales",
+            x=0.5,
+            y=0.95,
+            font=dict(size=12)
+        )
+    )
+    
+    return fig
+
 
 ###########################
 # 7. MAIN DASHBOARD
@@ -427,20 +539,22 @@ if uploaded_file is not None:
             tab1, tab2, tab3 = st.tabs(["Overview", "Analysis", "Data"])
             
             with tab1:
-                # REPLACE old “Risk Matrix” with the 5x5 squares
-                st.subheader(" Risk Matrix (Likelihood × Impact)")
+                # First add the risk scoring scale
+                st.subheader("Risk Scoring Scale")
+                fig_scale = create_risk_scoring_scale()
+                st.plotly_chart(fig_scale, use_container_width=True)
+                
+                # Then show the existing risk matrix
+                st.subheader("Risk Matrix (Likelihood × Impact)")
                 fig_5x5 = create_5x5_matrix_chart(processed_df)
                 st.plotly_chart(fig_5x5, use_container_width=True)
-
+                
                 st.subheader("Critical & High Risk Items")
                 crit_df = processed_df[processed_df['Risk_Level'].isin(['Critical','High'])]
                 st.dataframe(
                     crit_df[['Risk ID','Type of Risk','Description','Risk_Level','Risk_Score']], 
                     use_container_width=True
                 )
-
-
-               
 
             with tab2:
                 colA, colB = st.columns(2)
