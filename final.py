@@ -20,11 +20,11 @@ import io
 # 1. CONFIG & THRESHOLDS
 ###########################
 RISK_COLORS = {
-    1: ('#006400', 'Low'),      # Deep green
-    2: ('#90EE90', 'Minor'),    # Light green
-    3: ('#FFD700', 'Medium'),   # Yellow
-    4: ('#FF0000', 'High'),     # Red
-    5: ('#722F37', 'Critical')  # Wine
+    1: ('#006400', 'Very Low'),  # Deep green
+    2: ('#90EE90', 'Low'),       # Light green
+    3: ('#FFD700', 'Medium'),    # Yellow
+    4: ('#FF0000', 'High'),      # Red
+    5: ('#722F37', 'Extreme')    # Wine
 }
 
 THRESHOLD_RULES = {
@@ -205,7 +205,7 @@ def process_data_with_residuals(df, previous_data=None):
     processed_df['Risk_Score'] = processed_df['Risk_Score'].clip(upper=25)
     processed_df['Total_Risk_Category'] = processed_df['Risk_Score'].apply(calibrate_total_risk)
 
-    critical_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
+    extreme_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
     return processed_df
 
 ###########################
@@ -310,13 +310,13 @@ def create_risk_distribution_colored_table(df):
     Zero values are replaced with '-'.
     Text size and cell height are increased for better readability.
     The sum of each row is added as the last cell.
-    Text color is white for the "High" and "Critical" columns.
+    Text color is white for the "High" and "Extreme" columns.
     Returns:
         - fig: The Plotly table figure.
         - risk_distribution: The DataFrame used to create the table.
     """
     # Define all possible risk levels in the correct order
-    all_risk_levels = ['Low', 'Minor', 'Medium', 'High', 'Critical']
+    all_risk_levels = ['Very Low', 'Low', 'Medium', 'High', 'Extreme']
     
     # Create the crosstab
     risk_distribution = pd.crosstab(df['Type of Risk'], df['Risk_Level'])
@@ -333,22 +333,22 @@ def create_risk_distribution_colored_table(df):
     
     # Map Risk Levels to their corresponding colors
     risk_level_mapping = {
-        'Low': 1,
-        'Minor': 2,
+        'Very Low': 1,
+        'Low': 2,
         'Medium': 3,
         'High': 4,
-        'Critical': 5
+        'Extreme': 5
     }
     risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in all_risk_levels}
     
     # Define font colors for each column
     font_colors = {
+        'Very Low': 'black',
         'Low': 'black',
-        'Minor': 'black',
         'Medium': 'black',
-        'High': 'black',  # White text for "High"
-        'Critical': 'white',  # White text for "Critical"
-        'Total': 'white'  # Black text for "Total"
+        'High': 'white',  # White text for "High"
+        'Extreme': 'white',  # White text for "Extreme"
+        'Total': 'black'  # Black text for "Total"
     }
     
     # Create the colored table
@@ -373,7 +373,6 @@ def create_risk_distribution_colored_table(df):
     
     # Update layout
     fig.update_layout(
-        title="Risk Distribution by Type and Level",
         height=600,  # Increased height to accommodate larger cells
         margin=dict(l=50, r=50, t=50, b=50),  # Adjust margins for better spacing
     )
@@ -390,11 +389,11 @@ def create_risk_distribution(df):
     """
     # Map risk levels to their corresponding colors
     risk_level_mapping = {
-        'Low': 1,
-        'Minor': 2,
+        'Very Low': 1,
+        'Low': 2,
         'Medium': 3,
         'High': 4,
-        'Critical': 5
+        'Extreme': 5
     }
     risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
 
@@ -437,11 +436,11 @@ def create_trend_analysis(df):
 
     # Map risk levels to their corresponding colors
     risk_level_mapping = {
-        'Low': 1,
-        'Minor': 2,
+        'Very Low': 1,
+        'Low': 2,
         'Medium': 3,
         'High': 4,
-        'Critical': 5
+        'Extreme': 5
     }
     risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
 
@@ -454,7 +453,7 @@ def create_trend_analysis(df):
         textposition='auto'
     )])
     fig.update_layout(
-        title="Average Risk Score by Category",
+        title="Average Risk Score",
         xaxis_title="Risk Type",
         yaxis_title="Average Risk Score",
         height=400
@@ -510,14 +509,14 @@ def generate_comprehensive_report(df, timestamp):
     
     # Add summary statistics
     total_risks = len(df)
-    critical_risks = len(df[df['Risk_Level']=='Critical'])
+    extreme_risks = len(df[df['Risk_Level']=='Extreme'])
     high_risks = len(df[df['Risk_Level']=='High'])
     avg_score = df['Risk_Score'].mean()
     
     summary_data = [
         ['Metric', 'Value'],
         ['Total Risks', str(total_risks)],
-        ['Critical Risks', str(critical_risks)],
+        ['Extreme Risks', str(extreme_risks)],
         ['High Risks', str(high_risks)],
         ['Average Risk Score', f"{avg_score:.2f}"]
     ]
@@ -540,11 +539,11 @@ def generate_comprehensive_report(df, timestamp):
     story.append(summary_table)
     story.append(Spacer(1, 20))
     
-    # Add critical and high risks table
-    story.append(Paragraph("Critical and High Risk Items", styles['Heading2']))
+    # Add Extreme and high risks table
+    story.append(Paragraph("Extreme and High Risk Items", styles['Heading2']))
     story.append(Spacer(1, 10))
     
-    critical_high_df = df[df['Risk_Level'].isin(['Critical', 'High'])].copy()
+    critical_high_df = df[df['Risk_Level'].isin(['Extreme', 'High'])].copy()
     if len(critical_high_df) > 0:
         risk_data = [['Risk ID', 'Type', 'Description', 'Risk Level', 'Score']]
         for _, row in critical_high_df.iterrows():
@@ -573,7 +572,7 @@ def generate_comprehensive_report(df, timestamp):
         
         story.append(risk_table)
     else:
-        story.append(Paragraph("No Critical or High risk items found.", styles['Normal']))
+        story.append(Paragraph("No Extreme or High risk items found.", styles['Normal']))
     
     # Build PDF
     doc.build(story)
@@ -742,12 +741,12 @@ if uploaded_file is not None:
         if processed_df is not None:
             col1, col2, col3, col4 = st.columns(4)
             total_risks = len(processed_df)
-            critical_risks = len(processed_df[processed_df['Risk_Level']=='Critical'])
+            extreme_risks = len(processed_df[processed_df['Risk_Level']=='Extreme'])
             high_risks = len(processed_df[processed_df['Risk_Level']=='High'])
             avg_score = processed_df['Risk_Score'].mean()
             residual_risks = len(processed_df[processed_df['Residual_Risk']>0])
 
-            col1.metric("Critical Risks", critical_risks, f"{(critical_risks/total_risks*100):.1f}%")
+            col1.metric("Extreme Risks", extreme_risks, f"{(extreme_risks/total_risks*100):.1f}%")
             col2.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
             col3.metric("Avg Risk Score", f"{avg_score:.2f}")
             col4.metric("Residual Risks", residual_risks)
@@ -766,12 +765,12 @@ if uploaded_file is not None:
                 st.plotly_chart(fig_5x5, use_container_width=True)
                 
                 # Add the risk distribution heatmap below the risk matrix
-                st.subheader("Risk Distribution by Type and Level")
+                st.subheader("Risk Distribution by Type")
                 fig_colored_table, risk_distribution = create_risk_distribution_colored_table(processed_df)
                 st.plotly_chart(fig_colored_table, use_container_width=True)
                 
-                st.subheader("Critical & High Risk Items")
-                crit_df = processed_df[processed_df['Risk_Level'].isin(['Critical','High'])]
+                st.subheader("Extreme & High Risk Items")
+                crit_df = processed_df[processed_df['Risk_Level'].isin(['Extreme','High'])]
                 st.dataframe(
                     crit_df[['Risk ID','Type of Risk','Description','Risk_Level','Risk_Score']], 
                     use_container_width=True
@@ -817,15 +816,15 @@ if uploaded_file is not None:
                 with pd.ExcelWriter(excel_buffer) as writer:
                     processed_df.to_excel(writer, sheet_name='Risk Data', index=False)
                     summary_stats = pd.DataFrame({
-                        'Metric':['Total','Critical','High','Avg Score','Residual>0'],
-                        'Value':[total_risks, critical_risks, high_risks, avg_score, residual_risks]
+                        'Metric':['Total','Extreme','High','Avg Score','Residual>0'],
+                        'Value':[total_risks, extreme_risks, high_risks, avg_score, residual_risks]
                     })
                     summary_stats.to_excel(writer, sheet_name='Summary', index=False)
                     
                     # Use the risk_distribution DataFrame returned from the function
                     risk_distribution.to_excel(writer, sheet_name='Risk Distribution')
                     
-                    crit_df.to_excel(writer, sheet_name='Critical_High', index=False)
+                    crit_df.to_excel(writer, sheet_name='Extreme_High', index=False)
 
                 excel_buffer.seek(0)
                 st.download_button(
