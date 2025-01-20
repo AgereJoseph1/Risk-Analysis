@@ -20,11 +20,11 @@ import io
 # 1. CONFIG & THRESHOLDS
 ###########################
 RISK_COLORS = {
-    1: ('#006400', 'Low'),      # Deep green
-    2: ('#90EE90', 'Minor'),    # Light green
-    3: ('#FFD700', 'Medium'),   # Yellow
-    4: ('#FF0000', 'High'),     # Red
-    5: ('#722F37', 'Critical')  # Wine
+    1: ('#006400', 'Very Low'),  # Deep green
+    2: ('#90EE90', 'Low'),       # Light green
+    3: ('#FFD700', 'Medium'),    # Yellow
+    4: ('#FF0000', 'High'),      # Red
+    5: ('#722F37', 'Extreme')    # Wine
 }
 
 THRESHOLD_RULES = {
@@ -36,10 +36,10 @@ THRESHOLD_RULES = {
         float('inf'): 5
     },
     'percentage': {
-        15: 1,   # ≤ 15% => 1
-        25: 2,
-        35: 3,
-        50: 4,
+        10: 1,   # ≤ 10% => 1
+        11: 2,
+        25: 3,
+        26: 4,
         float('inf'): 5
     },
     'target': {
@@ -177,16 +177,62 @@ def calculate_risk_score(value, threshold_type):
     return min(score, 25)
 
 def process_data(df):
+    # Create a copy of the DataFrame to avoid modifying the original
     df = df.copy()
-    df['Threshold_Type'] = df['Upper Limit'].apply(categorize_threshold_type)
-    df['Numeric_Value'] = df.apply(
-        lambda row: extract_numeric_value(row['Upper Limit'], row['Threshold_Type']), axis=1
-    )
-    df['Risk_Score'] = df.apply(
-        lambda row: calculate_risk_score(row['Numeric_Value'], row['Threshold_Type']), axis=1
-    )
-    df['Risk_Color'] = df['Risk_Score'].map(lambda x: RISK_COLORS[x][0])
-    df['Risk_Level'] = df['Risk_Score'].map(lambda x: RISK_COLORS[x][1])
+
+    # Hardcoded numeric percentages for Lower Limit, Upper Limit, and Response Level
+    LOWER_LIMIT_MIN = 0
+    LOWER_LIMIT_MAX = 10
+    UPPER_LIMIT_MIN = 11
+    UPPER_LIMIT_MAX = 25
+    RESPONSE_LEVEL_MIN = 25
+    RESPONSE_LEVEL_MAX = 45
+
+    # Add hardcoded numeric values to the DataFrame
+    df['Lower_Limit_Value'] = LOWER_LIMIT_MAX  # Upper bound of Lower Limit
+    df['Upper_Limit_Value'] = UPPER_LIMIT_MAX  # Upper bound of Upper Limit
+    df['Response_Level_Value'] = RESPONSE_LEVEL_MAX  # Upper bound of Response Level
+
+    # Determine the Limitation column based on the Appetite Score
+    def determine_limitation(appetite_score):
+        if 0 <= appetite_score < 10:
+            return 1
+        elif 10 <= appetite_score < 11:
+            return 2
+        elif 11 <= appetite_score < 25:
+            return 3
+        elif 25 <= appetite_score < 26:
+            return 4
+        elif 26 <= appetite_score <= 45:
+            return 5
+        else:
+            return 5  # Default value if appetite_score is out of bounds
+
+    # Apply the determine_limitation function to the Appetite Score column
+    df['Limitation'] = df['Appetite Score'].apply(determine_limitation)
+
+    # Map Limitation values to Risk Levels using RISK_COLORS
+    df['Risk_Level'] = df['Limitation'].map({
+        1: RISK_COLORS[1][1],  # Very Low
+        2: RISK_COLORS[2][1],  # Low
+        3: RISK_COLORS[3][1],  # Medium
+        4: RISK_COLORS[4][1],  # High
+        5: RISK_COLORS[5][1]   # Extreme
+    })
+
+    # Map Limitation values to Risk Colors using RISK_COLORS
+    df['Risk_Color'] = df['Limitation'].map({
+        1: RISK_COLORS[1][0],  # Deep green
+        2: RISK_COLORS[2][0],  # Light green
+        3: RISK_COLORS[3][0],  # Yellow
+        4: RISK_COLORS[4][0],  # Red
+        5: RISK_COLORS[5][0]   # Wine
+    })
+
+    # Calculate the Risk Score column by multiplying Limitation and Impact
+    df['Risk_Score'] = df['Limitation'] * df['Impact']
+
+    # Return the processed DataFrame
     return df
 
 def process_data_with_residuals(df, previous_data=None):
@@ -205,119 +251,219 @@ def process_data_with_residuals(df, previous_data=None):
     processed_df['Risk_Score'] = processed_df['Risk_Score'].clip(upper=25)
     processed_df['Total_Risk_Category'] = processed_df['Risk_Score'].apply(calibrate_total_risk)
 
-    critical_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
+    extreme_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
     return processed_df
 
-###########################
-# 4. 5X5 MATRIX
-###########################
 def product_color(prod):
     """
     1..6 => green
     7..12 => yellow
     13..18 => red
-    19..25 => black
+    19..25 => wine
     """
     if 1 <= prod <= 6:
-        return "#008000"
+        return "#008000"  # Green
     elif 7 <= prod <= 12:
-        return "#FFFF00"
+        return "#FFFF00"  # Yellow
     elif 13 <= prod <= 18:
-        return "#FF0000"
+        return "#FF0000"  # Red
     else:
-        return "#000000"
+        return "#722F37"  # Wine
 
+###########################
+# 4. 5X5 MATRIX
+###########################
 def create_5x5_matrix_chart(df):
     """
     Build a 5×5 grid of squares: (Likelihood=1..5, Impact=1..5).
     The text in each cell = how many items in df have (L,I).
-    Color by L×I => 1..25 => green, yellow, red, black.
+    Color by L×I => 1..25 => green, yellow, red, wine.
     Counts are capped at 25 per cell.
     """
 
     # Fallback approach
     if 'Likelihood' not in df.columns or 'Impact' not in df.columns:
+        # Handle NaN values in Risk_Score by filling them with 0 or another default value
+        df['Risk_Score'] = df['Risk_Score'].fillna(0)  # Fill NaN with 0
         df['Likelihood'] = df['Risk_Score'].clip(upper=5)
         df['Impact'] = 1
 
     # Tally with cap at 25
-    counts = [[0]*5 for _ in range(5)]
+    counts = [[0] * 5 for _ in range(5)]
     for _, row in df.iterrows():
-        l = int(row['Likelihood'])
-        i = int(row['Impact'])
+        # Ensure Likelihood and Impact are valid integers
+        l = int(row['Likelihood']) if not pd.isna(row['Likelihood']) else 0
+        i = int(row['Impact']) if not pd.isna(row['Impact']) else 0
         if 1 <= l <= 5 and 1 <= i <= 5:
-            counts[l-1][i-1] = min(counts[l-1][i-1] + 1, 25)  # Cap at 25
+            counts[l - 1][i - 1] = min(counts[l - 1][i - 1] + 1, 25)  # Cap at 25
 
     fig = go.Figure()
-    for l in range(1,6):
-        for i in range(1,6):
-            product = l*i
+    for l in range(1, 6):
+        for i in range(1, 6):
+            product = l * i
             color = product_color(product)
-            count = counts[l-1][i-1]
-            
+            count = counts[l - 1][i - 1]
+
             # Add '+' symbol if count is 25
             display_text = f"25" if count == 25 else str(count)
-            
-            x0, x1 = i-1, i
-            y0, y1 = 5-l, 5-l+1
+
+            x0, x1 = i - 1, i
+            y0, y1 = 5 - l, 5 - l + 1
 
             fig.add_shape(
                 type="rect",
                 x0=x0, x1=x1,
                 y0=y0, y1=y1,
-                fillcolor=color,
+                fillcolor=color,  # Set the background color
                 line=dict(color="#FFFFFF", width=2)
             )
 
-            text_color = "#FFFFFF" if color in ["#FF0000","#000000"] else "#000000"
+            # Set text color based on background color
+            text_color = "#FFFFFF" if color in ["#FF0000", "#722F37"] else "#000000"
             fig.add_annotation(
-                x=(x0+x1)/2,
-                y=(y0+y1)/2,
+                x=(x0 + x1) / 2,
+                y=(y0 + y1) / 2,
                 text=display_text,
-                font=dict(color=text_color,size=14),
+                font=dict(color=text_color, size=14),
                 showarrow=False
             )
 
     fig.update_xaxes(
-        range=[0,5],
+        range=[0, 5],
         tickmode="array",
-        tickvals=[0.5,1.5,2.5,3.5,4.5],
-        ticktext=["1","2","3","4","5"],
+        tickvals=[0.5, 1.5, 2.5, 3.5, 4.5],
+        ticktext=["1", "2", "3", "4", "5"],
         side="top"
     )
     fig.update_yaxes(
-        range=[0,5],
+        range=[0, 5],
         tickmode="array",
-        tickvals=[0.5,1.5,2.5,3.5,4.5],
-        ticktext=["5","4","3","2","1"],
+        tickvals=[0.5, 1.5, 2.5, 3.5, 4.5],
+        ticktext=["5", "4", "3", "2", "1"],
         scaleanchor="x",
         scaleratio=1
     )
     fig.update_layout(
         width=500, height=500,
         plot_bgcolor="#FFF",
-        margin=dict(l=20,r=20,t=60,b=20)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
     return fig
+
+def create_risk_distribution_colored_table(df):
+    """
+    Creates a colored table to visualize the distribution of risk levels for each type of risk.
+    Rows: Type of Risk
+    Columns: Risk Levels
+    Each cell is colored based on its corresponding risk level.
+    Padding is added between cells for better visual separation.
+    Zero values are replaced with '-'.
+    Text size and cell height are increased for better readability.
+    The sum of each row is added as the last cell.
+    Text color is white for the "High" and "Extreme" columns.
+    Returns:
+        - fig: The Plotly table figure.
+        - risk_distribution: The DataFrame used to create the table.
+    """
+    # Define all possible risk levels in the correct order
+    all_risk_levels = ['Very Low', 'Low', 'Medium', 'High', 'Extreme']
+    
+    # Create the crosstab
+    risk_distribution = pd.crosstab(df['Type of Risk'], df['Risk_Level'])
+    
+    # Reindex the crosstab to include all risk levels, filling missing values with 0
+    risk_distribution = risk_distribution.reindex(columns=all_risk_levels, fill_value=0)
+    
+    # Replace zero values with '-'
+    risk_distribution = risk_distribution.replace(0, '-')
+    
+    # Calculate the sum of each row
+    row_sums = risk_distribution.replace('-', 0).sum(axis=1)
+    risk_distribution['Total'] = row_sums  # Add the sum as a new column
+    
+    # Map Risk Levels to their corresponding colors
+    risk_level_mapping = {
+        'Very Low': 1,
+        'Low': 2,
+        'Medium': 3,
+        'High': 4,
+        'Extreme': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in all_risk_levels}
+    
+    # Define font colors for each column
+    font_colors = {
+        'Very Low': 'black',
+        'Low': 'black',
+        'Medium': 'black',
+        'High': 'white',  # White text for "High"
+        'Extreme': 'white',  # White text for "Extreme"
+        'Total': 'black'  # Black text for "Total"
+    }
+    
+    # Create the colored table
+    fig = go.Figure(data=go.Table(
+        header=dict(
+            values=['Type of Risk'] + list(risk_distribution.columns),
+            fill_color='lightgray',
+            align='center',
+            font=dict(color='black', size=14),  # Increased font size for header
+            line=dict(width=1, color='white'),  # Add white borders for padding
+            height=50  # Increased header height for better spacing
+        ),
+        cells=dict(
+            values=[risk_distribution.index] + [risk_distribution[level] for level in risk_distribution.columns],
+            fill_color=['lightgray'] + [[risk_colors[level]] * len(risk_distribution) for level in all_risk_levels] + ['lightgray'] * len(risk_distribution),  # Color for the "Total" column
+            align='center',
+            font=dict(color=[font_colors[level] for level in risk_distribution.columns] + ['black'], size=14),  # Set font color based on column
+            line=dict(width=1, color='white'),  # Add white borders for padding
+            height=40  # Increased cell height for better spacing
+        )
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        height=600,  # Increased height to accommodate larger cells
+        margin=dict(l=50, r=50, t=50, b=50),  # Adjust margins for better spacing
+    )
+    
+    return fig, risk_distribution
 
 ###########################
 # 5. DISTRIBUTION & TREND
 ###########################
 def create_risk_distribution(df):
+    """
+    Creates a pie chart and bar chart to visualize the distribution of risk levels.
+    Colors are based on the RISK_COLORS dictionary.
+    """
+    # Map risk levels to their corresponding colors
+    risk_level_mapping = {
+        'Very Low': 1,
+        'Low': 2,
+        'Medium': 3,
+        'High': 4,
+        'Extreme': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+
+    # Pie Chart: Risk Level Distribution
     risk_dist = df['Risk_Level'].value_counts()
     fig_pie = go.Figure(data=[go.Pie(
         labels=risk_dist.index,
         values=risk_dist.values,
         hole=0.4,
-        textinfo='label+percent'
+        textinfo='label+percent',
+        marker=dict(colors=[risk_colors[level] for level in risk_dist.index])  # Use RISK_COLORS for pie chart
     )])
     fig_pie.update_layout(title="Risk Level Distribution", height=400)
 
+    # Bar Chart: Risk Distribution by Type
     type_dist = df['Type of Risk'].value_counts()
     fig_bar = go.Figure(data=[go.Bar(
         x=type_dist.index,
         y=type_dist.values,
-        marker_color='#1E3F66',
+        marker_color='#1E3F66',  # Default color for bar chart (can be customized if needed)
         text=type_dist.values,
         textposition='auto'
     )])
@@ -327,23 +473,42 @@ def create_risk_distribution(df):
         yaxis_title="Count",
         height=400
     )
+
     return fig_pie, fig_bar
 
 def create_trend_analysis(df):
+    """
+    Creates a bar chart showing the average risk score for each risk type.
+    Colors are based on the RISK_COLORS dictionary.
+    """
+    # Calculate average risk scores
     avg_scores = df.groupby('Type of Risk')['Risk_Score'].mean().sort_values(ascending=False)
+
+    # Map risk levels to their corresponding colors
+    risk_level_mapping = {
+        'Very Low': 1,
+        'Low': 2,
+        'Medium': 3,
+        'High': 4,
+        'Extreme': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+
+    # Create the bar chart
     fig = go.Figure(data=[go.Bar(
         x=avg_scores.index,
         y=avg_scores.values,
-        marker_color='#1E3F66',
+        marker_color=[risk_colors[df[df['Type of Risk'] == risk_type]['Risk_Level'].mode()[0]] for risk_type in avg_scores.index],  # Use RISK_COLORS for bar chart
         text=[f"{x:.2f}" for x in avg_scores.values],
         textposition='auto'
     )])
     fig.update_layout(
-        title="Average Risk Score by Category",
+        title="Average Risk Score",
         xaxis_title="Risk Type",
         yaxis_title="Average Risk Score",
         height=400
     )
+
     return fig
 
 ###########################
@@ -394,14 +559,14 @@ def generate_comprehensive_report(df, timestamp):
     
     # Add summary statistics
     total_risks = len(df)
-    critical_risks = len(df[df['Risk_Level']=='Critical'])
+    extreme_risks = len(df[df['Risk_Level']=='Extreme'])
     high_risks = len(df[df['Risk_Level']=='High'])
     avg_score = df['Risk_Score'].mean()
     
     summary_data = [
         ['Metric', 'Value'],
         ['Total Risks', str(total_risks)],
-        ['Critical Risks', str(critical_risks)],
+        ['Extreme Risks', str(extreme_risks)],
         ['High Risks', str(high_risks)],
         ['Average Risk Score', f"{avg_score:.2f}"]
     ]
@@ -424,11 +589,11 @@ def generate_comprehensive_report(df, timestamp):
     story.append(summary_table)
     story.append(Spacer(1, 20))
     
-    # Add critical and high risks table
-    story.append(Paragraph("Critical and High Risk Items", styles['Heading2']))
+    # Add Extreme and high risks table
+    story.append(Paragraph("Extreme and High Risk Items", styles['Heading2']))
     story.append(Spacer(1, 10))
     
-    critical_high_df = df[df['Risk_Level'].isin(['Critical', 'High'])].copy()
+    critical_high_df = df[df['Risk_Level'].isin(['Extreme', 'High'])].copy()
     if len(critical_high_df) > 0:
         risk_data = [['Risk ID', 'Type', 'Description', 'Risk Level', 'Score']]
         for _, row in critical_high_df.iterrows():
@@ -457,7 +622,7 @@ def generate_comprehensive_report(df, timestamp):
         
         story.append(risk_table)
     else:
-        story.append(Paragraph("No Critical or High risk items found.", styles['Normal']))
+        story.append(Paragraph("No Extreme or High risk items found.", styles['Normal']))
     
     # Build PDF
     doc.build(story)
@@ -626,13 +791,12 @@ if uploaded_file is not None:
         if processed_df is not None:
             col1, col2, col3, col4 = st.columns(4)
             total_risks = len(processed_df)
-            critical_risks = len(processed_df[processed_df['Risk_Level']=='Critical'])
+            extreme_risks = len(processed_df[processed_df['Risk_Level']=='Extreme'])
             high_risks = len(processed_df[processed_df['Risk_Level']=='High'])
             avg_score = processed_df['Risk_Score'].mean()
             residual_risks = len(processed_df[processed_df['Residual_Risk']>0])
 
-         
-            col1.metric("Critical Risks", critical_risks, f"{(critical_risks/total_risks*100):.1f}%")
+            col1.metric("Extreme Risks", extreme_risks, f"{(extreme_risks/total_risks*100):.1f}%")
             col2.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
             col3.metric("Avg Risk Score", f"{avg_score:.2f}")
             col4.metric("Residual Risks", residual_risks)
@@ -650,8 +814,13 @@ if uploaded_file is not None:
                 fig_5x5 = create_5x5_matrix_chart(processed_df)
                 st.plotly_chart(fig_5x5, use_container_width=True)
                 
-                st.subheader("Critical & High Risk Items")
-                crit_df = processed_df[processed_df['Risk_Level'].isin(['Critical','High'])]
+                # Add the risk distribution heatmap below the risk matrix
+                st.subheader("Risk Distribution by Type")
+                fig_colored_table, risk_distribution = create_risk_distribution_colored_table(processed_df)
+                st.plotly_chart(fig_colored_table, use_container_width=True)
+                
+                st.subheader("Extreme & High Risk Items")
+                crit_df = processed_df[processed_df['Risk_Level'].isin(['Extreme','High'])]
                 st.dataframe(
                     crit_df[['Risk ID','Type of Risk','Description','Risk_Level','Risk_Score']], 
                     use_container_width=True
@@ -659,12 +828,17 @@ if uploaded_file is not None:
 
             with tab2:
                 colA, colB = st.columns(2)
+                
+                # Pie Chart and Bar Chart for Risk Distribution
                 fig_pie, fig_bar = create_risk_distribution(processed_df)
                 colA.plotly_chart(fig_pie, use_container_width=True)
                 colB.plotly_chart(fig_bar, use_container_width=True)
+                
+                # Trend Analysis Bar Chart
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
 
             with tab3:
+                st.subheader("Full Data")
                 st.dataframe(processed_df, use_container_width=True)
 
             # Download
@@ -692,15 +866,15 @@ if uploaded_file is not None:
                 with pd.ExcelWriter(excel_buffer) as writer:
                     processed_df.to_excel(writer, sheet_name='Risk Data', index=False)
                     summary_stats = pd.DataFrame({
-                        'Metric':['Total','Critical','High','Avg Score','Residual>0'],
-                        'Value':[total_risks, critical_risks, high_risks, avg_score, residual_risks]
+                        'Metric':['Total','Extreme','High','Avg Score','Residual>0'],
+                        'Value':[total_risks, extreme_risks, high_risks, avg_score, residual_risks]
                     })
                     summary_stats.to_excel(writer, sheet_name='Summary', index=False)
                     
-                    pd.crosstab(processed_df['Type of Risk'], processed_df['Risk_Level'], margins=True)\
-                      .to_excel(writer, sheet_name='Risk Distribution')
+                    # Use the risk_distribution DataFrame returned from the function
+                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution')
                     
-                    crit_df.to_excel(writer, sheet_name='Critical_High', index=False)
+                    crit_df.to_excel(writer, sheet_name='Extreme_High', index=False)
 
                 excel_buffer.seek(0)
                 st.download_button(
@@ -709,6 +883,7 @@ if uploaded_file is not None:
                     file_name=f"risk_assessment_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+        
     except Exception as e:
         st.error(f"Error: {str(e)}")
         st.write("Please check your file format and try again.")
