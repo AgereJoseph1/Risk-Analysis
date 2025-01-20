@@ -36,10 +36,10 @@ THRESHOLD_RULES = {
         float('inf'): 5
     },
     'percentage': {
-        15: 1,   # ≤ 15% => 1
-        25: 2,
-        35: 3,
-        50: 4,
+        10: 1,   # ≤ 10% => 1
+        11: 2,
+        25: 3,
+        26: 4,
         float('inf'): 5
     },
     'target': {
@@ -299,6 +299,86 @@ def create_5x5_matrix_chart(df):
         margin=dict(l=20,r=20,t=60,b=20)
     )
     return fig
+
+def create_risk_distribution_colored_table(df):
+    """
+    Creates a colored table to visualize the distribution of risk levels for each type of risk.
+    Rows: Type of Risk
+    Columns: Risk Levels
+    Each cell is colored based on its corresponding risk level.
+    Padding is added between cells for better visual separation.
+    Zero values are replaced with '-'.
+    Text size and cell height are increased for better readability.
+    The sum of each row is added as the last cell.
+    Text color is white for the "High" and "Critical" columns.
+    Returns:
+        - fig: The Plotly table figure.
+        - risk_distribution: The DataFrame used to create the table.
+    """
+    # Define all possible risk levels in the correct order
+    all_risk_levels = ['Low', 'Minor', 'Medium', 'High', 'Critical']
+    
+    # Create the crosstab
+    risk_distribution = pd.crosstab(df['Type of Risk'], df['Risk_Level'])
+    
+    # Reindex the crosstab to include all risk levels, filling missing values with 0
+    risk_distribution = risk_distribution.reindex(columns=all_risk_levels, fill_value=0)
+    
+    # Replace zero values with '-'
+    risk_distribution = risk_distribution.replace(0, '-')
+    
+    # Calculate the sum of each row
+    row_sums = risk_distribution.replace('-', 0).sum(axis=1)
+    risk_distribution['Total'] = row_sums  # Add the sum as a new column
+    
+    # Map Risk Levels to their corresponding colors
+    risk_level_mapping = {
+        'Low': 1,
+        'Minor': 2,
+        'Medium': 3,
+        'High': 4,
+        'Critical': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in all_risk_levels}
+    
+    # Define font colors for each column
+    font_colors = {
+        'Low': 'black',
+        'Minor': 'black',
+        'Medium': 'black',
+        'High': 'black',  # White text for "High"
+        'Critical': 'white',  # White text for "Critical"
+        'Total': 'white'  # Black text for "Total"
+    }
+    
+    # Create the colored table
+    fig = go.Figure(data=go.Table(
+        header=dict(
+            values=['Type of Risk'] + list(risk_distribution.columns),
+            fill_color='lightgray',
+            align='center',
+            font=dict(color='black', size=14),  # Increased font size for header
+            line=dict(width=1, color='white'),  # Add white borders for padding
+            height=50  # Increased header height for better spacing
+        ),
+        cells=dict(
+            values=[risk_distribution.index] + [risk_distribution[level] for level in risk_distribution.columns],
+            fill_color=['lightgray'] + [[risk_colors[level]] * len(risk_distribution) for level in all_risk_levels] + ['lightgray'] * len(risk_distribution),  # Color for the "Total" column
+            align='center',
+            font=dict(color=[font_colors[level] for level in risk_distribution.columns] + ['black'], size=14),  # Set font color based on column
+            line=dict(width=1, color='white'),  # Add white borders for padding
+            height=40  # Increased cell height for better spacing
+        )
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title="Risk Distribution by Type and Level",
+        height=600,  # Increased height to accommodate larger cells
+        margin=dict(l=50, r=50, t=50, b=50),  # Adjust margins for better spacing
+    )
+    
+    return fig, risk_distribution
 
 ###########################
 # 5. DISTRIBUTION & TREND
@@ -631,7 +711,6 @@ if uploaded_file is not None:
             avg_score = processed_df['Risk_Score'].mean()
             residual_risks = len(processed_df[processed_df['Residual_Risk']>0])
 
-         
             col1.metric("Critical Risks", critical_risks, f"{(critical_risks/total_risks*100):.1f}%")
             col2.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
             col3.metric("Avg Risk Score", f"{avg_score:.2f}")
@@ -650,6 +729,11 @@ if uploaded_file is not None:
                 fig_5x5 = create_5x5_matrix_chart(processed_df)
                 st.plotly_chart(fig_5x5, use_container_width=True)
                 
+                # Add the risk distribution heatmap below the risk matrix
+                st.subheader("Risk Distribution by Type and Level")
+                fig_colored_table, risk_distribution = create_risk_distribution_colored_table(processed_df)
+                st.plotly_chart(fig_colored_table, use_container_width=True)
+                
                 st.subheader("Critical & High Risk Items")
                 crit_df = processed_df[processed_df['Risk_Level'].isin(['Critical','High'])]
                 st.dataframe(
@@ -665,6 +749,7 @@ if uploaded_file is not None:
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
 
             with tab3:
+                st.subheader("Full Data")
                 st.dataframe(processed_df, use_container_width=True)
 
             # Download
@@ -697,8 +782,8 @@ if uploaded_file is not None:
                     })
                     summary_stats.to_excel(writer, sheet_name='Summary', index=False)
                     
-                    pd.crosstab(processed_df['Type of Risk'], processed_df['Risk_Level'], margins=True)\
-                      .to_excel(writer, sheet_name='Risk Distribution')
+                    # Use the risk_distribution DataFrame returned from the function
+                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution')
                     
                     crit_df.to_excel(writer, sheet_name='Critical_High', index=False)
 
@@ -709,6 +794,7 @@ if uploaded_file is not None:
                     file_name=f"risk_assessment_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+        
     except Exception as e:
         st.error(f"Error: {str(e)}")
         st.write("Please check your file format and try again.")
