@@ -384,20 +384,37 @@ def create_risk_distribution_colored_table(df):
 # 5. DISTRIBUTION & TREND
 ###########################
 def create_risk_distribution(df):
+    """
+    Creates a pie chart and bar chart to visualize the distribution of risk levels.
+    Colors are based on the RISK_COLORS dictionary.
+    """
+    # Map risk levels to their corresponding colors
+    risk_level_mapping = {
+        'Low': 1,
+        'Minor': 2,
+        'Medium': 3,
+        'High': 4,
+        'Critical': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+
+    # Pie Chart: Risk Level Distribution
     risk_dist = df['Risk_Level'].value_counts()
     fig_pie = go.Figure(data=[go.Pie(
         labels=risk_dist.index,
         values=risk_dist.values,
         hole=0.4,
-        textinfo='label+percent'
+        textinfo='label+percent',
+        marker=dict(colors=[risk_colors[level] for level in risk_dist.index])  # Use RISK_COLORS for pie chart
     )])
     fig_pie.update_layout(title="Risk Level Distribution", height=400)
 
+    # Bar Chart: Risk Distribution by Type
     type_dist = df['Type of Risk'].value_counts()
     fig_bar = go.Figure(data=[go.Bar(
         x=type_dist.index,
         y=type_dist.values,
-        marker_color='#1E3F66',
+        marker_color='#1E3F66',  # Default color for bar chart (can be customized if needed)
         text=type_dist.values,
         textposition='auto'
     )])
@@ -407,14 +424,32 @@ def create_risk_distribution(df):
         yaxis_title="Count",
         height=400
     )
+
     return fig_pie, fig_bar
 
 def create_trend_analysis(df):
+    """
+    Creates a bar chart showing the average risk score for each risk type.
+    Colors are based on the RISK_COLORS dictionary.
+    """
+    # Calculate average risk scores
     avg_scores = df.groupby('Type of Risk')['Risk_Score'].mean().sort_values(ascending=False)
+
+    # Map risk levels to their corresponding colors
+    risk_level_mapping = {
+        'Low': 1,
+        'Minor': 2,
+        'Medium': 3,
+        'High': 4,
+        'Critical': 5
+    }
+    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+
+    # Create the bar chart
     fig = go.Figure(data=[go.Bar(
         x=avg_scores.index,
         y=avg_scores.values,
-        marker_color='#1E3F66',
+        marker_color=[risk_colors[df[df['Type of Risk'] == risk_type]['Risk_Level'].mode()[0]] for risk_type in avg_scores.index],  # Use RISK_COLORS for bar chart
         text=[f"{x:.2f}" for x in avg_scores.values],
         textposition='auto'
     )])
@@ -424,6 +459,7 @@ def create_trend_analysis(df):
         yaxis_title="Average Risk Score",
         height=400
     )
+
     return fig
 
 ###########################
@@ -743,9 +779,13 @@ if uploaded_file is not None:
 
             with tab2:
                 colA, colB = st.columns(2)
+                
+                # Pie Chart and Bar Chart for Risk Distribution
                 fig_pie, fig_bar = create_risk_distribution(processed_df)
                 colA.plotly_chart(fig_pie, use_container_width=True)
                 colB.plotly_chart(fig_bar, use_container_width=True)
+                
+                # Trend Analysis Bar Chart
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
 
             with tab3:
