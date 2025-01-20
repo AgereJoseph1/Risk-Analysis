@@ -177,16 +177,62 @@ def calculate_risk_score(value, threshold_type):
     return min(score, 25)
 
 def process_data(df):
+    # Create a copy of the DataFrame to avoid modifying the original
     df = df.copy()
-    df['Threshold_Type'] = df['Upper Limit'].apply(categorize_threshold_type)
-    df['Numeric_Value'] = df.apply(
-        lambda row: extract_numeric_value(row['Upper Limit'], row['Threshold_Type']), axis=1
-    )
-    df['Risk_Score'] = df.apply(
-        lambda row: calculate_risk_score(row['Numeric_Value'], row['Threshold_Type']), axis=1
-    )
-    df['Risk_Color'] = df['Risk_Score'].map(lambda x: RISK_COLORS[x][0])
-    df['Risk_Level'] = df['Risk_Score'].map(lambda x: RISK_COLORS[x][1])
+
+    # Hardcoded numeric percentages for Lower Limit, Upper Limit, and Response Level
+    LOWER_LIMIT_MIN = 0
+    LOWER_LIMIT_MAX = 10
+    UPPER_LIMIT_MIN = 11
+    UPPER_LIMIT_MAX = 25
+    RESPONSE_LEVEL_MIN = 25
+    RESPONSE_LEVEL_MAX = 45
+
+    # Add hardcoded numeric values to the DataFrame
+    df['Lower_Limit_Value'] = LOWER_LIMIT_MAX  # Upper bound of Lower Limit
+    df['Upper_Limit_Value'] = UPPER_LIMIT_MAX  # Upper bound of Upper Limit
+    df['Response_Level_Value'] = RESPONSE_LEVEL_MAX  # Upper bound of Response Level
+
+    # Determine the Limitation column based on the Appetite Score
+    def determine_limitation(appetite_score):
+        if 0 <= appetite_score < 10:
+            return 1
+        elif 10 <= appetite_score < 11:
+            return 2
+        elif 11 <= appetite_score < 25:
+            return 3
+        elif 25 <= appetite_score < 26:
+            return 4
+        elif 26 <= appetite_score <= 45:
+            return 5
+        else:
+            return 5  # Default value if appetite_score is out of bounds
+
+    # Apply the determine_limitation function to the Appetite Score column
+    df['Limitation'] = df['Appetite Score'].apply(determine_limitation)
+
+    # Map Limitation values to Risk Levels using RISK_COLORS
+    df['Risk_Level'] = df['Limitation'].map({
+        1: RISK_COLORS[1][1],  # Very Low
+        2: RISK_COLORS[2][1],  # Low
+        3: RISK_COLORS[3][1],  # Medium
+        4: RISK_COLORS[4][1],  # High
+        5: RISK_COLORS[5][1]   # Extreme
+    })
+
+    # Map Limitation values to Risk Colors using RISK_COLORS
+    df['Risk_Color'] = df['Limitation'].map({
+        1: RISK_COLORS[1][0],  # Deep green
+        2: RISK_COLORS[2][0],  # Light green
+        3: RISK_COLORS[3][0],  # Yellow
+        4: RISK_COLORS[4][0],  # Red
+        5: RISK_COLORS[5][0]   # Wine
+    })
+
+    # Calculate the Risk Score column by multiplying Limitation and Impact
+    df['Risk_Score'] = df['Limitation'] * df['Impact']
+
+    # Return the processed DataFrame
     return df
 
 def process_data_with_residuals(df, previous_data=None):
@@ -208,95 +254,99 @@ def process_data_with_residuals(df, previous_data=None):
     extreme_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
     return processed_df
 
-###########################
-# 4. 5X5 MATRIX
-###########################
 def product_color(prod):
     """
     1..6 => green
     7..12 => yellow
     13..18 => red
-    19..25 => black
+    19..25 => wine
     """
     if 1 <= prod <= 6:
-        return "#008000"
+        return "#008000"  # Green
     elif 7 <= prod <= 12:
-        return "#FFFF00"
+        return "#FFFF00"  # Yellow
     elif 13 <= prod <= 18:
-        return "#FF0000"
+        return "#FF0000"  # Red
     else:
-        return "#000000"
+        return "#722F37"  # Wine
 
+###########################
+# 4. 5X5 MATRIX
+###########################
 def create_5x5_matrix_chart(df):
     """
     Build a 5×5 grid of squares: (Likelihood=1..5, Impact=1..5).
     The text in each cell = how many items in df have (L,I).
-    Color by L×I => 1..25 => green, yellow, red, black.
+    Color by L×I => 1..25 => green, yellow, red, wine.
     Counts are capped at 25 per cell.
     """
 
     # Fallback approach
     if 'Likelihood' not in df.columns or 'Impact' not in df.columns:
+        # Handle NaN values in Risk_Score by filling them with 0 or another default value
+        df['Risk_Score'] = df['Risk_Score'].fillna(0)  # Fill NaN with 0
         df['Likelihood'] = df['Risk_Score'].clip(upper=5)
         df['Impact'] = 1
 
     # Tally with cap at 25
-    counts = [[0]*5 for _ in range(5)]
+    counts = [[0] * 5 for _ in range(5)]
     for _, row in df.iterrows():
-        l = int(row['Likelihood'])
-        i = int(row['Impact'])
+        # Ensure Likelihood and Impact are valid integers
+        l = int(row['Likelihood']) if not pd.isna(row['Likelihood']) else 0
+        i = int(row['Impact']) if not pd.isna(row['Impact']) else 0
         if 1 <= l <= 5 and 1 <= i <= 5:
-            counts[l-1][i-1] = min(counts[l-1][i-1] + 1, 25)  # Cap at 25
+            counts[l - 1][i - 1] = min(counts[l - 1][i - 1] + 1, 25)  # Cap at 25
 
     fig = go.Figure()
-    for l in range(1,6):
-        for i in range(1,6):
-            product = l*i
+    for l in range(1, 6):
+        for i in range(1, 6):
+            product = l * i
             color = product_color(product)
-            count = counts[l-1][i-1]
-            
+            count = counts[l - 1][i - 1]
+
             # Add '+' symbol if count is 25
             display_text = f"25" if count == 25 else str(count)
-            
-            x0, x1 = i-1, i
-            y0, y1 = 5-l, 5-l+1
+
+            x0, x1 = i - 1, i
+            y0, y1 = 5 - l, 5 - l + 1
 
             fig.add_shape(
                 type="rect",
                 x0=x0, x1=x1,
                 y0=y0, y1=y1,
-                fillcolor=color,
+                fillcolor=color,  # Set the background color
                 line=dict(color="#FFFFFF", width=2)
             )
 
-            text_color = "#FFFFFF" if color in ["#FF0000","#000000"] else "#000000"
+            # Set text color based on background color
+            text_color = "#FFFFFF" if color in ["#FF0000", "#722F37"] else "#000000"
             fig.add_annotation(
-                x=(x0+x1)/2,
-                y=(y0+y1)/2,
+                x=(x0 + x1) / 2,
+                y=(y0 + y1) / 2,
                 text=display_text,
-                font=dict(color=text_color,size=14),
+                font=dict(color=text_color, size=14),
                 showarrow=False
             )
 
     fig.update_xaxes(
-        range=[0,5],
+        range=[0, 5],
         tickmode="array",
-        tickvals=[0.5,1.5,2.5,3.5,4.5],
-        ticktext=["1","2","3","4","5"],
+        tickvals=[0.5, 1.5, 2.5, 3.5, 4.5],
+        ticktext=["1", "2", "3", "4", "5"],
         side="top"
     )
     fig.update_yaxes(
-        range=[0,5],
+        range=[0, 5],
         tickmode="array",
-        tickvals=[0.5,1.5,2.5,3.5,4.5],
-        ticktext=["5","4","3","2","1"],
+        tickvals=[0.5, 1.5, 2.5, 3.5, 4.5],
+        ticktext=["5", "4", "3", "2", "1"],
         scaleanchor="x",
         scaleratio=1
     )
     fig.update_layout(
         width=500, height=500,
         plot_bgcolor="#FFF",
-        margin=dict(l=20,r=20,t=60,b=20)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
     return fig
 
