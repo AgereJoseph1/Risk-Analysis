@@ -414,7 +414,9 @@ def create_risk_distribution_colored_table(df):
 ###########################
 def create_risk_distribution(df):
     """
-    Creates a pie chart and bar chart to visualize the distribution of risk levels.
+    Creates two bar charts:
+    1. Risk Level / Rating distribution (e.g., Very Low, Low, Medium, High, Extreme).
+    2. Risk Distribution by Type.
     Colors are based on the RISK_COLORS dictionary.
     """
     # Map risk levels to their corresponding colors
@@ -427,34 +429,39 @@ def create_risk_distribution(df):
     }
     risk_colors = {level: RISK_COLORS[rating_mapping[level]][0] for level in df['Rating'].unique()}
 
-    # Pie Chart: Risk Level Distribution
-    risk_dist = df['Rating'].value_counts()
-    fig_pie = go.Figure(data=[go.Pie(
-        labels=risk_dist.index,
-        values=risk_dist.values,
-        hole=0.4,
-        textinfo='label+percent',
-        marker=dict(colors=[risk_colors[level] for level in risk_dist.index])  # Use RISK_COLORS for pie chart
+    # Bar Chart 1: Risk Level / Rating Distribution
+    risk_level_dist = df['Rating'].value_counts().sort_index()
+    fig_risk_level = go.Figure(data=[go.Bar(
+        x=risk_level_dist.index,
+        y=risk_level_dist.values,
+        marker_color=[risk_colors[level] for level in risk_level_dist.index],  # Use RISK_COLORS for bar chart
+        text=risk_level_dist.values,
+        textposition='auto'
     )])
-    fig_pie.update_layout(title="Risk Level Distribution", height=400)
+    fig_risk_level.update_layout(
+        title="Risk Level Distribution",
+        xaxis_title="Risk Level",
+        yaxis_title="Count",
+        height=400
+    )
 
-    # Bar Chart: Risk Distribution by Type
+    # Bar Chart 2: Risk Distribution by Type
     type_dist = df['Type of Risk'].value_counts()
-    fig_bar = go.Figure(data=[go.Bar(
+    fig_type_dist = go.Figure(data=[go.Bar(
         x=type_dist.index,
         y=type_dist.values,
         marker_color='#1E3F66',  # Default color for bar chart (can be customized if needed)
         text=type_dist.values,
         textposition='auto'
     )])
-    fig_bar.update_layout(
+    fig_type_dist.update_layout(
         title="Risk Distribution by Type",
         xaxis_title="Risk Type",
         yaxis_title="Count",
         height=400
     )
 
-    return fig_pie, fig_bar
+    return fig_risk_level, fig_type_dist
 
 def create_trend_analysis(df):
     """
@@ -776,11 +783,11 @@ if uploaded_file is not None:
             previous_data = pd.read_excel(previous_file) if previous_file.name.endswith('.xlsx') else pd.read_csv(previous_file)
 
         processed_df = process_data_with_residuals(df, previous_data)
-        # Drop the Risk_Color column from the DataFrame
-        processed_df = processed_df.drop(columns=['Risk_Color'], errors='ignore')
-        # processed_df = processed_df.drop(columns=['Lower_Limit'], errors='ignore')
-        # processed_df = processed_df.drop(columns=['Upper_Limit'], errors='ignore')
-        # processed_df = processed_df.drop(columns=['Respone_Level'], errors='ignore')
+        # Drop the Risk_Color, Lower Limit, Upper Limit, and Response Level columns from the DataFrame
+        processed_df = processed_df.drop(
+            columns=['Risk_Color', 'Lower Limit', 'Upper Limit', 'Response Level'], 
+            errors='ignore'
+            )
 
         if processed_df is not None:
             col1, col2, col3, col4 = st.columns(4)
@@ -815,14 +822,18 @@ if uploaded_file is not None:
             with tab2:
                 colA, colB = st.columns(2)
                 
-                # Pie Chart and Bar Chart for Risk Distribution
-                fig_pie, fig_bar = create_risk_distribution(processed_df)
-                colA.plotly_chart(fig_pie, use_container_width=True)
-                colB.plotly_chart(fig_bar, use_container_width=True)
+                # Bar Charts for Risk Distribution
+                fig_risk_level, fig_type_dist = create_risk_distribution(processed_df)
                 
-                # Trend Analysis Bar Chart
+                # Display Risk Level / Rating Distribution in colA
+                colA.plotly_chart(fig_risk_level, use_container_width=True)
+                
+                # Display Risk Distribution by Type in colB
+                colB.plotly_chart(fig_type_dist, use_container_width=True)
+                
+                # Trend Analysis Bar Chart (below the two columns)
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
-
+            
             with tab3:
                 st.subheader("Report")
                 st.dataframe(processed_df, use_container_width=True)
@@ -851,7 +862,11 @@ if uploaded_file is not None:
                 excel_buffer = BytesIO()
                 with pd.ExcelWriter(excel_buffer) as writer:
                     # Add the full data table to the 'Full Data' sheet
-                    processed_df.to_excel(writer, sheet_name='Rating', index=False)
+                    processed_df.to_excel(writer, sheet_name='Report', index=False)
+                    
+                    risk_distribution = risk_distribution.reset_index()
+                    # Add risk distribution to the 'Risk Distribution' sheet
+                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution', index=False)
                     
                     # Add summary statistics to the 'Summary' sheet
                     summary_stats = pd.DataFrame({
@@ -860,12 +875,9 @@ if uploaded_file is not None:
                     })
                     summary_stats.to_excel(writer, sheet_name='Summary', index=False)
                     
-                    # Add risk distribution to the 'Risk Distribution' sheet
-                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution', index=False)
-                    
                     # Apply background colors to the rating column in the 'Full Data' sheet
                     workbook = writer.book
-                    sheet = workbook['Rating']
+                    sheet = workbook['Report']
 
                     # Define color mappings for rating
                     risk_color_mapping = {
@@ -885,6 +897,45 @@ if uploaded_file is not None:
                         if rating in risk_color_mapping:
                             fill = PatternFill(start_color=risk_color_mapping[rating], end_color=risk_color_mapping[rating], fill_type='solid')
                             sheet.cell(row=row, column=rating_col_index).fill = fill
+
+                    # Apply background colors to the rating columns in the 'Risk Distribution' sheet
+                    risk_distribution_sheet = workbook['Risk Distribution']
+                    
+                    # Get the column indices for the rating columns
+                    rating_columns = ['Very Low', 'Low', 'Medium', 'High', 'Extreme']
+                    rating_col_indices = {
+                        rating: risk_distribution.columns.tolist().index(rating) + 1  # +1 for Excel's 1-based indexing
+                        for rating in rating_columns
+                    }
+                    
+                    # Apply colors to each rating column based on the column header
+                    for rating, col_index in rating_col_indices.items():
+                        for row in range(2, len(risk_distribution) + 2):  # Start from row 2 (skip header)
+                            cell = risk_distribution_sheet.cell(row=row, column=col_index)
+                            # Apply color based on the column header, regardless of the cell value
+                            fill = PatternFill(start_color=risk_color_mapping[rating], end_color=risk_color_mapping[rating], fill_type='solid')
+                            cell.fill = fill
+                            
+                    gray_color = 'D3D3D3'  # Light gray
+                    # Apply gray background to column headers (first row)
+                    for col in range(1, len(risk_distribution.columns) + 1):  # Iterate through all columns
+                        cell = risk_distribution_sheet.cell(row=1, column=col)
+                        fill = PatternFill(start_color=gray_color, end_color=gray_color, fill_type='solid')
+                        cell.fill = fill
+                    
+                    # Apply gray background to the 'Type of Risk' column
+                    type_of_risk_col_index = risk_distribution.columns.tolist().index('Type of Risk') + 1  # +1 for Excel's 1-based indexing
+                    for row in range(2, len(risk_distribution) + 2):  # Start from row 2 (skip header)
+                        cell = risk_distribution_sheet.cell(row=row, column=type_of_risk_col_index)
+                        fill = PatternFill(start_color=gray_color, end_color=gray_color, fill_type='solid')
+                        cell.fill = fill
+
+                    # Apply gray background to the 'Total' column
+                    total_col_index = risk_distribution.columns.tolist().index('Total') + 1  # +1 for Excel's 1-based indexing
+                    for row in range(2, len(risk_distribution) + 2):  # Start from row 2 (skip header)
+                        cell = risk_distribution_sheet.cell(row=row, column=total_col_index)
+                        fill = PatternFill(start_color=gray_color, end_color=gray_color, fill_type='solid')
+                        cell.fill = fill
 
                 excel_buffer.seek(0)
                 st.download_button(
