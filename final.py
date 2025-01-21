@@ -138,7 +138,7 @@ def calibrate_total_risk(total_risk):
     return max(CALIBRATION_RULES.values())
 
 # def send_email_alert(risk_item):
-#     st.info(f"Email Alert Sent for Risk ID: {risk_item['Risk ID']} - {risk_item['Risk_Level']}")
+#     st.info(f"Email Alert Sent for Risk ID: {risk_item['Risk ID']} - {risk_item['Rating']}")
 
 def predict_risk_trends(df):
     risk_trend = df.groupby('Type of Risk')['Risk_Score'].mean() + np.random.uniform(-0.5, 0.5, len(df['Type of Risk'].unique()))
@@ -200,7 +200,7 @@ def process_data(df):
     df['Limitation'] = df['Appetite Score'].apply(determine_limitation)
 
     # Map Limitation values to Risk Levels using RISK_COLORS
-    df['Risk_Level'] = df['Limitation'].map({
+    df['Rating'] = df['Limitation'].map({
         1: RISK_COLORS[1][1],  # Very Low
         2: RISK_COLORS[2][1],  # Low
         3: RISK_COLORS[3][1],  # Medium
@@ -346,13 +346,13 @@ def create_risk_distribution_colored_table(df):
         - risk_distribution: The DataFrame used to create the table.
     """
     # Define all possible risk levels in the correct order
-    all_risk_levels = ['Very Low', 'Low', 'Medium', 'High', 'Extreme']
+    all_ratings = ['Very Low', 'Low', 'Medium', 'High', 'Extreme']
     
     # Create the crosstab
-    risk_distribution = pd.crosstab(df['Type of Risk'], df['Risk_Level'])
+    risk_distribution = pd.crosstab(df['Type of Risk'], df['Rating'])
     
     # Reindex the crosstab to include all risk levels, filling missing values with 0
-    risk_distribution = risk_distribution.reindex(columns=all_risk_levels, fill_value=0)
+    risk_distribution = risk_distribution.reindex(columns=all_ratings, fill_value=0)
     
     # Replace zero values with '-'
     risk_distribution = risk_distribution.replace(0, '-')
@@ -362,14 +362,14 @@ def create_risk_distribution_colored_table(df):
     risk_distribution['Total'] = row_sums  # Add the sum as a new column
     
     # Map Risk Levels to their corresponding colors
-    risk_level_mapping = {
+    rating_mapping = {
         'Very Low': 1,
         'Low': 2,
         'Medium': 3,
         'High': 4,
         'Extreme': 5
     }
-    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in all_risk_levels}
+    risk_colors = {level: RISK_COLORS[rating_mapping[level]][0] for level in all_ratings}
     
     # Define font colors for each column
     font_colors = {
@@ -393,7 +393,7 @@ def create_risk_distribution_colored_table(df):
         ),
         cells=dict(
             values=[risk_distribution.index] + [risk_distribution[level] for level in risk_distribution.columns],
-            fill_color=['lightgray'] + [[risk_colors[level]] * len(risk_distribution) for level in all_risk_levels] + ['lightgray'] * len(risk_distribution),  # Color for the "Total" column
+            fill_color=['lightgray'] + [[risk_colors[level]] * len(risk_distribution) for level in all_ratings] + ['lightgray'] * len(risk_distribution),  # Color for the "Total" column
             align='center',
             font=dict(color=[font_colors[level] for level in risk_distribution.columns] + ['black'], size=14),  # Set font color based on column
             line=dict(width=1, color='white'),  # Add white borders for padding
@@ -418,17 +418,17 @@ def create_risk_distribution(df):
     Colors are based on the RISK_COLORS dictionary.
     """
     # Map risk levels to their corresponding colors
-    risk_level_mapping = {
+    rating_mapping = {
         'Very Low': 1,
         'Low': 2,
         'Medium': 3,
         'High': 4,
         'Extreme': 5
     }
-    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+    risk_colors = {level: RISK_COLORS[rating_mapping[level]][0] for level in df['Rating'].unique()}
 
     # Pie Chart: Risk Level Distribution
-    risk_dist = df['Risk_Level'].value_counts()
+    risk_dist = df['Rating'].value_counts()
     fig_pie = go.Figure(data=[go.Pie(
         labels=risk_dist.index,
         values=risk_dist.values,
@@ -465,20 +465,20 @@ def create_trend_analysis(df):
     avg_scores = df.groupby('Type of Risk')['Risk_Score'].mean().sort_values(ascending=False)
 
     # Map risk levels to their corresponding colors
-    risk_level_mapping = {
+    rating_mapping = {
         'Very Low': 1,
         'Low': 2,
         'Medium': 3,
         'High': 4,
         'Extreme': 5
     }
-    risk_colors = {level: RISK_COLORS[risk_level_mapping[level]][0] for level in df['Risk_Level'].unique()}
+    risk_colors = {level: RISK_COLORS[rating_mapping[level]][0] for level in df['Rating'].unique()}
 
     # Create the bar chart
     fig = go.Figure(data=[go.Bar(
         x=avg_scores.index,
         y=avg_scores.values,
-        marker_color=[risk_colors[df[df['Type of Risk'] == risk_type]['Risk_Level'].mode()[0]] for risk_type in avg_scores.index],  # Use RISK_COLORS for bar chart
+        marker_color=[risk_colors[df[df['Type of Risk'] == risk_type]['Rating'].mode()[0]] for risk_type in avg_scores.index],  # Use RISK_COLORS for bar chart
         text=[f"{x:.2f}" for x in avg_scores.values],
         textposition='auto'
     )])
@@ -539,8 +539,8 @@ def generate_comprehensive_report(df, timestamp):
     
     # Add summary statistics
     total_risks = len(df)
-    extreme_risks = len(df[df['Risk_Level']=='Extreme'])
-    high_risks = len(df[df['Risk_Level']=='High'])
+    extreme_risks = len(df[df['Rating']=='Extreme'])
+    high_risks = len(df[df['Rating']=='High'])
     avg_score = df['Risk_Score'].mean()
     
     summary_data = [
@@ -573,7 +573,7 @@ def generate_comprehensive_report(df, timestamp):
     story.append(Paragraph("Extreme and High Risk Items", styles['Heading2']))
     story.append(Spacer(1, 10))
     
-    critical_high_df = df[df['Risk_Level'].isin(['Extreme', 'High'])].copy()
+    critical_high_df = df[df['Rating'].isin(['Extreme', 'High'])].copy()
     if len(critical_high_df) > 0:
         risk_data = [['Risk ID', 'Type', 'Description', 'Risk Level', 'Score']]
         for _, row in critical_high_df.iterrows():
@@ -581,7 +581,7 @@ def generate_comprehensive_report(df, timestamp):
                 str(row['Risk ID']),
                 str(row['Type of Risk']),
                 str(row['Description'])[:100] + '...',  # Truncate long descriptions
-                str(row['Risk_Level']),
+                str(row['Rating']),
                 str(row['Risk_Score'])
             ])
         
@@ -764,7 +764,7 @@ if uploaded_file is not None:
         # Drop entirely empty rows (if any)
         df = df.dropna(axis=0, how='all')  # Add this line to skip empty rows
         
-        required_columns = ['Risk#','Type of Risk','Risk ID','Description','Lower Limit','Upper Limit']
+        required_columns = ['Risk#','Type of Risk','Risk ID','Description','Lower Limit','Upper Limit', 'Response Level']
         missing_columns = [c for c in required_columns if c not in df.columns]
         if missing_columns:
             st.error(f"Missing required columns: {', '.join(missing_columns)}")
@@ -778,13 +778,16 @@ if uploaded_file is not None:
         processed_df = process_data_with_residuals(df, previous_data)
         # Drop the Risk_Color column from the DataFrame
         processed_df = processed_df.drop(columns=['Risk_Color'], errors='ignore')
+        # processed_df = processed_df.drop(columns=['Lower_Limit'], errors='ignore')
+        # processed_df = processed_df.drop(columns=['Upper_Limit'], errors='ignore')
+        # processed_df = processed_df.drop(columns=['Respone_Level'], errors='ignore')
 
         if processed_df is not None:
             col1, col2, col3, col4 = st.columns(4)
             # Calculate metrics
             total_risks = len(processed_df)
-            extreme_risks = len(processed_df[processed_df['Risk_Level']=='Extreme'])
-            high_risks = len(processed_df[processed_df['Risk_Level']=='High'])
+            extreme_risks = len(processed_df[processed_df['Rating']=='Extreme'])
+            high_risks = len(processed_df[processed_df['Rating']=='High'])
             avg_score = processed_df['Risk_Score'].mean()
 
             col1.metric("Extreme Risks", extreme_risks, f"{(extreme_risks/total_risks*100):.1f}%")
@@ -821,7 +824,7 @@ if uploaded_file is not None:
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
 
             with tab3:
-                st.subheader("Full Data")
+                st.subheader("Report")
                 st.dataframe(processed_df, use_container_width=True)
 
             # Download
@@ -847,6 +850,9 @@ if uploaded_file is not None:
                 st.info("Download Raw Data Report")
                 excel_buffer = BytesIO()
                 with pd.ExcelWriter(excel_buffer) as writer:
+                    # Add the full data table to the 'Full Data' sheet
+                    processed_df.to_excel(writer, sheet_name='Rating', index=False)
+                    
                     # Add summary statistics to the 'Summary' sheet
                     summary_stats = pd.DataFrame({
                         'Metric': ['Total', 'Extreme', 'High', 'Avg Score'],
@@ -856,15 +862,12 @@ if uploaded_file is not None:
                     
                     # Add risk distribution to the 'Risk Distribution' sheet
                     risk_distribution.to_excel(writer, sheet_name='Risk Distribution', index=False)
-
-                    # Add the full data table to the 'Full Data' sheet
-                    processed_df.to_excel(writer, sheet_name='Full Data', index=False)
                     
-                    # Apply background colors to the Risk_Level column in the 'Full Data' sheet
+                    # Apply background colors to the rating column in the 'Full Data' sheet
                     workbook = writer.book
-                    sheet = workbook['Full Data']
+                    sheet = workbook['Rating']
 
-                    # Define color mappings for Risk_Level
+                    # Define color mappings for rating
                     risk_color_mapping = {
                         'Very Low': '006400',  # Deep green
                         'Low': '90EE90',       # Light green
@@ -873,15 +876,15 @@ if uploaded_file is not None:
                         'Extreme': '722F37'    # Wine
                     }
 
-                    # Find the column index of Risk_Level
-                    risk_level_col_index = processed_df.columns.tolist().index('Risk_Level') + 1  # +1 for Excel's 1-based indexing
+                    # Find the column index of rating
+                    rating_col_index = processed_df.columns.tolist().index('Rating') + 1  # +1 for Excel's 1-based indexing
 
-                    # Apply background colors to the Risk_Level column
+                    # Apply background colors to the rating column
                     for row in range(2, len(processed_df) + 2):  # Start from row 2 (skip header)
-                        risk_level = sheet.cell(row=row, column=risk_level_col_index).value
-                        if risk_level in risk_color_mapping:
-                            fill = PatternFill(start_color=risk_color_mapping[risk_level], end_color=risk_color_mapping[risk_level], fill_type='solid')
-                            sheet.cell(row=row, column=risk_level_col_index).fill = fill
+                        rating = sheet.cell(row=row, column=rating_col_index).value
+                        if rating in risk_color_mapping:
+                            fill = PatternFill(start_color=risk_color_mapping[rating], end_color=risk_color_mapping[rating], fill_type='solid')
+                            sheet.cell(row=row, column=rating_col_index).fill = fill
 
                 excel_buffer.seek(0)
                 st.download_button(
