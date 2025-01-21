@@ -125,8 +125,11 @@ def generate_excel_report(processed_df, risk_distribution, total_risks, extreme_
         # Write processed data to Excel
         processed_df.to_excel(writer, sheet_name='Report', index=False)
         
+        # Reset index and rename columns for Risk Distribution
+        risk_distribution = risk_distribution.reset_index().rename(columns={'index': 'Type of Risk'})
+        
         # Write risk distribution to Excel
-        risk_distribution.reset_index().to_excel(writer, sheet_name='Risk Distribution', index=False)
+        risk_distribution.to_excel(writer, sheet_name='Risk Distribution', index=False)
         
         # Create and write Risk Matrix to Excel
         risk_matrix = create_risk_matrix(processed_df)
@@ -178,11 +181,14 @@ def format_risk_distribution_sheet(sheet, columns):
         cell = sheet.cell(row=1, column=col)
         cell.fill = PatternFill(start_color=gray_color, end_color=gray_color, fill_type='solid')
     
-    # Color each column
+    # Map column names to their indices in the sheet
+    column_indices = {col_name: idx + 1 for idx, col_name in enumerate(columns)}
+    
+    # Color each column based on its name
     for col_name, color in column_colors.items():
-        if col_name in columns:
-            col_idx = columns.tolist().index(col_name) + 1  # +1 because Excel is 1-based
-            for row in range(2, sheet.max_row + 1):  # Start from 2 to skip header
+        if col_name in column_indices:
+            col_idx = column_indices[col_name]
+            for row in range(2, sheet.max_row + 1):  # Start from row 2 to skip header
                 cell = sheet.cell(row=row, column=col_idx)
                 cell.fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
                 if col_name in ['High', 'Extreme']:
@@ -190,8 +196,8 @@ def format_risk_distribution_sheet(sheet, columns):
     
     # Color Type of Risk and Total columns with gray
     for col_name in ['Type of Risk', 'Total']:
-        if col_name in columns:
-            col_idx = columns.tolist().index(col_name) + 1
+        if col_name in column_indices:
+            col_idx = column_indices[col_name]
             for row in range(2, sheet.max_row + 1):
                 cell = sheet.cell(row=row, column=col_idx)
                 cell.fill = PatternFill(start_color=gray_color, end_color=gray_color, fill_type='solid')
