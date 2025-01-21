@@ -15,6 +15,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.units import inch
 import io
+from openpyxl.styles import PatternFill
 
 ###########################
 # 1. CONFIG & THRESHOLDS
@@ -180,19 +181,6 @@ def process_data(df):
     # Create a copy of the DataFrame to avoid modifying the original
     df = df.copy()
 
-    # Hardcoded numeric percentages for Lower Limit, Upper Limit, and Response Level
-    LOWER_LIMIT_MIN = 0
-    LOWER_LIMIT_MAX = 10
-    UPPER_LIMIT_MIN = 11
-    UPPER_LIMIT_MAX = 25
-    RESPONSE_LEVEL_MIN = 25
-    RESPONSE_LEVEL_MAX = 45
-
-    # Add hardcoded numeric values to the DataFrame
-    df['Lower_Limit_Value'] = LOWER_LIMIT_MAX  # Upper bound of Lower Limit
-    df['Upper_Limit_Value'] = UPPER_LIMIT_MAX  # Upper bound of Upper Limit
-    df['Response_Level_Value'] = RESPONSE_LEVEL_MAX  # Upper bound of Response Level
-
     # Determine the Limitation column based on the Appetite Score
     def determine_limitation(appetite_score):
         if 0 <= appetite_score < 10:
@@ -237,21 +225,10 @@ def process_data(df):
 
 def process_data_with_residuals(df, previous_data=None):
     processed_df = process_data(df)
-    if previous_data is not None:
-        processed_df['Previous_Total_Risk'] = processed_df['Risk ID'].map(previous_data.set_index('Risk ID')['Total_Risk'])
-        processed_df['Residual_Risk'] = processed_df.apply(
-            lambda row: calculate_residual_risk(row['Risk_Score'], row['Previous_Total_Risk']),
-            axis=1
-        )
-    else:
-        processed_df['Previous_Total_Risk'] = 0
-        processed_df['Residual_Risk'] = 0
     
     # Ensure Total_Risk doesn't exceed 25
     processed_df['Risk_Score'] = processed_df['Risk_Score'].clip(upper=25)
-    processed_df['Total_Risk_Category'] = processed_df['Risk_Score'].apply(calibrate_total_risk)
-
-    extreme_risks = processed_df[processed_df['Risk_Score'] >= ALERT_EMAIL_THRESHOLD]
+    
     return processed_df
 
 def product_color(prod):
@@ -281,16 +258,19 @@ def create_5x5_matrix_chart(df):
     Counts are capped at 25 per cell.
     """
 
+    # Create a local copy of the DataFrame to avoid modifying the original
+    df_local = df.copy()
+
     # Fallback approach
-    if 'Likelihood' not in df.columns or 'Impact' not in df.columns:
+    if 'Likelihood' not in df_local.columns or 'Impact' not in df_local.columns:
         # Handle NaN values in Risk_Score by filling them with 0 or another default value
-        df['Risk_Score'] = df['Risk_Score'].fillna(0)  # Fill NaN with 0
-        df['Likelihood'] = df['Risk_Score'].clip(upper=5)
-        df['Impact'] = 1
+        df_local['Risk_Score'] = df_local['Risk_Score'].fillna(0)  # Fill NaN with 0
+        df_local['Likelihood'] = df_local['Risk_Score'].clip(upper=5)
+        df_local['Impact'] = 1
 
     # Tally with cap at 25
     counts = [[0] * 5 for _ in range(5)]
-    for _, row in df.iterrows():
+    for _, row in df_local.iterrows():
         # Ensure Likelihood and Impact are valid integers
         l = int(row['Likelihood']) if not pd.isna(row['Likelihood']) else 0
         i = int(row['Impact']) if not pd.isna(row['Impact']) else 0
@@ -775,6 +755,15 @@ if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
         
+        # Drop columns with default names like 'Unnamed: 11', 'Unnamed: 12', etc.
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # Drop entirely empty columns (if any)
+        df = df.dropna(axis=1, how='all')
+        
+        # Drop entirely empty rows (if any)
+        df = df.dropna(axis=0, how='all')  # Add this line to skip empty rows
+        
         required_columns = ['Risk#','Type of Risk','Risk ID','Description','Lower Limit','Upper Limit']
         missing_columns = [c for c in required_columns if c not in df.columns]
         if missing_columns:
@@ -787,19 +776,20 @@ if uploaded_file is not None:
             previous_data = pd.read_excel(previous_file) if previous_file.name.endswith('.xlsx') else pd.read_csv(previous_file)
 
         processed_df = process_data_with_residuals(df, previous_data)
+        # Drop the Risk_Color column from the DataFrame
+        processed_df = processed_df.drop(columns=['Risk_Color'], errors='ignore')
 
         if processed_df is not None:
             col1, col2, col3, col4 = st.columns(4)
+            # Calculate metrics
             total_risks = len(processed_df)
             extreme_risks = len(processed_df[processed_df['Risk_Level']=='Extreme'])
             high_risks = len(processed_df[processed_df['Risk_Level']=='High'])
             avg_score = processed_df['Risk_Score'].mean()
-            residual_risks = len(processed_df[processed_df['Residual_Risk']>0])
 
             col1.metric("Extreme Risks", extreme_risks, f"{(extreme_risks/total_risks*100):.1f}%")
             col2.metric("High Risks", high_risks, f"{(high_risks/total_risks*100):.1f}%")
             col3.metric("Avg Risk Score", f"{avg_score:.2f}")
-            col4.metric("Residual Risks", residual_risks)
 
             tab1, tab2, tab3 = st.tabs(["Overview", "Analysis", "Data"])
             
@@ -818,13 +808,6 @@ if uploaded_file is not None:
                 st.subheader("Risk Distribution by Type")
                 fig_colored_table, risk_distribution = create_risk_distribution_colored_table(processed_df)
                 st.plotly_chart(fig_colored_table, use_container_width=True)
-                
-                st.subheader("Extreme & High Risk Items")
-                crit_df = processed_df[processed_df['Risk_Level'].isin(['Extreme','High'])]
-                st.dataframe(
-                    crit_df[['Risk ID','Type of Risk','Description','Risk_Level','Risk_Score']], 
-                    use_container_width=True
-                )
 
             with tab2:
                 colA, colB = st.columns(2)
@@ -864,17 +847,41 @@ if uploaded_file is not None:
                 st.info("Download Raw Data Report")
                 excel_buffer = BytesIO()
                 with pd.ExcelWriter(excel_buffer) as writer:
-                    processed_df.to_excel(writer, sheet_name='Risk Data', index=False)
+                    # Add summary statistics to the 'Summary' sheet
                     summary_stats = pd.DataFrame({
-                        'Metric':['Total','Extreme','High','Avg Score','Residual>0'],
-                        'Value':[total_risks, extreme_risks, high_risks, avg_score, residual_risks]
+                        'Metric': ['Total', 'Extreme', 'High', 'Avg Score'],
+                        'Value': [total_risks, extreme_risks, high_risks, avg_score]
                     })
                     summary_stats.to_excel(writer, sheet_name='Summary', index=False)
                     
-                    # Use the risk_distribution DataFrame returned from the function
-                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution')
+                    # Add risk distribution to the 'Risk Distribution' sheet
+                    risk_distribution.to_excel(writer, sheet_name='Risk Distribution', index=False)
+
+                    # Add the full data table to the 'Full Data' sheet
+                    processed_df.to_excel(writer, sheet_name='Full Data', index=False)
                     
-                    crit_df.to_excel(writer, sheet_name='Extreme_High', index=False)
+                    # Apply background colors to the Risk_Level column in the 'Full Data' sheet
+                    workbook = writer.book
+                    sheet = workbook['Full Data']
+
+                    # Define color mappings for Risk_Level
+                    risk_color_mapping = {
+                        'Very Low': '006400',  # Deep green
+                        'Low': '90EE90',       # Light green
+                        'Medium': 'FFD700',    # Yellow
+                        'High': 'FF0000',      # Red
+                        'Extreme': '722F37'    # Wine
+                    }
+
+                    # Find the column index of Risk_Level
+                    risk_level_col_index = processed_df.columns.tolist().index('Risk_Level') + 1  # +1 for Excel's 1-based indexing
+
+                    # Apply background colors to the Risk_Level column
+                    for row in range(2, len(processed_df) + 2):  # Start from row 2 (skip header)
+                        risk_level = sheet.cell(row=row, column=risk_level_col_index).value
+                        if risk_level in risk_color_mapping:
+                            fill = PatternFill(start_color=risk_color_mapping[risk_level], end_color=risk_color_mapping[risk_level], fill_type='solid')
+                            sheet.cell(row=row, column=risk_level_col_index).fill = fill
 
                 excel_buffer.seek(0)
                 st.download_button(
@@ -900,4 +907,3 @@ else:
     - Upper Limit
     (Optional: Response Level, etc.)
     """)
-
