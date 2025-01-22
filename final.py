@@ -308,9 +308,12 @@ if uploaded_file is not None:
             col2.metric("High Risks", high_risks, f"{(high_risks / total_risks * 100):.1f}%")
             col3.metric("Avg Risk Score", f"{avg_score:.2f}")
 
-            tab1, tab2, tab3 = st.tabs(["Overview", "Analysis", "Data"])
+            tab1, tab2 = st.tabs(["Overview", "Analysis"])
             
             with tab1:
+                st.subheader("Report")
+                st.dataframe(processed_df, use_container_width=True)
+            
                 st.subheader("Risk Distribution by Type")
                 fig_colored_table, risk_distribution = create_risk_distribution_colored_table(processed_df)
                 st.plotly_chart(fig_colored_table, use_container_width=True)
@@ -321,10 +324,6 @@ if uploaded_file is not None:
                 colA.plotly_chart(fig_risk_level, use_container_width=True)
                 colB.plotly_chart(fig_type_dist, use_container_width=True)
                 st.plotly_chart(create_trend_analysis(processed_df), use_container_width=True)
-            
-            with tab3:
-                st.subheader("Report")
-                st.dataframe(processed_df, use_container_width=True)
 
             st.subheader("Report Generation")
             st.info("Download Raw Data Report")
