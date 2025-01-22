@@ -349,5 +349,6 @@ else:
     - Description 
     - Lower Limit 
     - Upper Limit
+    - Appetite score
     (Optional: Response Level, etc.)
     """)
